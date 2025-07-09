@@ -1,103 +1,13 @@
 pipeline {
-    agent {
-        kubernetes {
-            cloud 'openshift' // Name of your OpenShift Cloud configuration in Jenkins
-            yaml '''
-apiVersion: v1
-kind: Pod
-spec:
-  containers:
-  - name: go
-    image: golang:1.23.10 # Or a custom image with Go and oc cli pre-installed
-    command:
-    - cat
-    tty: true
-  - name: oc-cli
-    image: registry.redhat.io/openshift4/ose-cli:latest # OpenShift CLI image
-    command:
-    - cat
-    tty: true
-'''
-        }
-    }
+    agent any
     environment {
-        OPENSHIFT_NAMESPACE = 'my-go-app-dev' // Your OpenShift project
-        APP_NAME = 'my-go-app'
-        BUILD_CONFIG_NAME = 'my-go-app-build'
-        DEPLOYMENT_CONFIG_NAME = 'my-go-app'
+        CI = 'true'
     }
     stages {
-        stage('Checkout') {
+        stage('Greet') {
             steps {
-                script {
-                    // Checkout the source code from SCM (e.g., Git)
-                    checkout scm
-                }
+                sh 'echo "Hello world from gitlab"' 
             }
-        }
-        stage('Build Go Application') {
-            steps {
-                container('go') {
-                    // sh 'go vet ./...' // Basic Go static analysis
-                    // sh 'go test ./...' // Run Go unit tests
-                    sh 'CGO_ENABLED=0 GOOS=linux go build -o ${APP_NAME} .' // Build the Go binary
-                }
-            }
-        }
-        stage('Build Docker Image on OpenShift') {
-            steps {
-                container('oc-cli') {
-                    script {
-                        echo "Starting OpenShift build for ${APP_NAME}..."
-                        // Trigger OpenShift build config with binary input
-                        // This streams the current workspace content to OpenShift
-                        // OpenShift will then use the Dockerfile to build the image.
-                        sh "oc new-build ${scm} --strater"
-                        sh "oc start-build ${BUILD_CONFIG_NAME} --from-dir=. -n ${OPENSHIFT_NAMESPACE} --follow"
-                        echo "OpenShift build completed."
-                    }
-                }
-            }
-        }
-        stage('Deploy to OpenShift') {
-            steps {
-                container('oc-cli') {
-                    script {
-                        echo "Ensuring deployment config exists..."
-                        // Apply the DeploymentConfig, Service, and Route (if they don't exist or need updates)
-                        // This is idempotent, so it won't recreate if already present
-                        sh "oc apply -f openshift-resources/deployment.yaml -n ${OPENSHIFT_NAMESPACE}"
-                        sh "oc apply -f openshift-resources/service.yaml -n ${OPENSHIFT_NAMESPACE}"
-                        sh "oc apply -f openshift-resources/route.yaml -n ${OPENSHIFT_NAMESPACE}"
-
-                        echo "Triggering deployment..."
-                        // This will trigger a new deployment because the ImageStreamTag was updated by the build.
-                        // You can also explicitly trigger it:
-                        // sh "oc rollout latest ${DEPLOYMENT_CONFIG_NAME} -n ${OPENSHIFT_NAMESPACE}"
-
-                        echo "Waiting for deployment to complete..."
-                        sh "oc rollout status dc/${DEPLOYMENT_CONFIG_NAME} -n ${OPENSHIFT_NAMESPACE}"
-                        echo "Deployment successful!"
-                    }
-                }
-            }
-        }
-        stage('Verify Deployment (Optional)') {
-            steps {
-                container('oc-cli') {
-                    script {
-                        echo "Verifying application availability..."
-                        def route = sh(script: "oc get route ${APP_NAME} -n ${OPENSHIFT_NAMESPACE} -o jsonpath='{.spec.host}'", returnStdout: true).trim()
-                        sh "curl -f -s http://${route}" // Basic health check via route
-                        echo "Application reachable at http://${route}"
-                    }
-                }
-            }
-        }
-    }
-    post {
-        always {
-            cleanWs()
         }
     }
 }
